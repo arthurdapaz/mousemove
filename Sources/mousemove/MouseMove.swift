@@ -41,6 +41,7 @@ final class MouseMove {
     private func isIdle() -> Bool {
         let null = CGEventType(rawValue: ~0)!
         let lastEvent: CFTimeInterval = CGEventSource.secondsSinceLastEventType(CGEventSourceStateID.hidSystemState, eventType: null)
+        print("Idle for", lastEvent)
         return lastEvent > 30
     }
 
