@@ -1,5 +1,6 @@
 import class AppKit.NSScreen
 import class AppKit.NSEvent
+import CoreGraphics
 import Foundation
 
 final class MouseMove {
