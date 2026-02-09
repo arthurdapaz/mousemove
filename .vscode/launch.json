@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:mousemove}",
+            "name": "Debug mousemove",
+            "target": "mousemove",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug mousemove"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:mousemove}",
+            "name": "Release mousemove",
+            "target": "mousemove",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release mousemove"
+        }
+    ]
+}

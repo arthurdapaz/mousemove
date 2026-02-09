@@ -1,6 +1,8 @@
+
+import Foundation
+import CoreGraphics
 import class AppKit.NSScreen
 import class AppKit.NSEvent
-import Foundation
 
 final class MouseMove {
     init() {
@@ -42,35 +44,38 @@ final class MouseMove {
         let null = CGEventType(rawValue: ~0)!
         let lastEvent: CFTimeInterval = CGEventSource.secondsSinceLastEventType(CGEventSourceStateID.hidSystemState, eventType: null)
         print("Idle for", lastEvent)
-        return lastEvent > 30
+        return lastEvent > 5
     }
 
     func circulate() {
         guard let screenSize = NSScreen.main?.visibleFrame.size else { fatalError("Most run on a screen session") }
-        let currentPoint = CGPoint(x: NSEvent.mouseLocation.x, y: screenSize.height - NSEvent.mouseLocation.y)
-        var lastPoint = currentPoint
+        // Usa a posição do mouse em coordenadas de tela (origem canto inferior esquerdo)
+        let initialPoint = NSEvent.mouseLocation
 
-        let total = Double(1)
-        var angle = Double.zero
+        let radius: Double = 50
+        let steps = 60
+        let twoPi = Double.pi * 2
+        let angleStep = twoPi / Double(steps)
 
-        for number in stride(from: 0, to: total, by: 0.015) {
-            let cosin = number > 0.8 ? -cos(angle) : cos(angle)
+        var lastDestination: CGPoint = initialPoint
 
-            let x = 50 * cosin + currentPoint.x
-            let y = 50 * sin(angle) + currentPoint.y
+        for i in 0...steps {
+            let angle = Double(i) * angleStep
+            let x = radius * cos(angle) + initialPoint.x
+            let y = radius * sin(angle) + initialPoint.y
             let destination = CGPoint(x: x, y: y)
 
-            if number == .zero {
-                easeMove(from: currentPoint, to: destination)
+            if i == 0 {
+                easeMove(from: initialPoint, to: destination)
             } else {
                 move(to: destination)
             }
 
             usleep(useconds_t(30_000))
-            lastPoint = destination
-            angle += number
+            lastDestination = destination
         }
 
-        easeMove(from: lastPoint, to: currentPoint)
+        // Garante que o mouse retorna exatamente ao ponto inicial
+        easeMove(from: lastDestination, to: initialPoint)
     }
 }
