@@ -93,7 +93,8 @@ final class MouseMove {
             }
             return pts
         case .zigzag:
-            var pts: [CGPoint] = []
+            // create alternating corner points then interpolate between them
+            var cornerPts: [CGPoint] = []
             let segments = max(2, steps / 6)
             let width = radius * 4
             let dx = width / Double(segments)
@@ -101,7 +102,21 @@ final class MouseMove {
                 let x = initialPoint.x - CGFloat(width/2) + CGFloat(Double(i) * dx)
                 let yOffset = (i % 2 == 0) ? radius : -radius
                 let y = initialPoint.y + CGFloat(yOffset)
-                pts.append(CGPoint(x: x, y: y))
+                cornerPts.append(CGPoint(x: x, y: y))
+            }
+
+            // interpolate each edge to create a continuous path
+            var pts: [CGPoint] = []
+            let perEdge = max(4, steps / max(1, segments))
+            for edge in 0..<(cornerPts.count - 1) {
+                let a = cornerPts[edge]
+                let b = cornerPts[edge + 1]
+                for j in 0...perEdge {
+                    let t = CGFloat(j) / CGFloat(perEdge)
+                    let x = a.x + (b.x - a.x) * t
+                    let y = a.y + (b.y - a.y) * t
+                    pts.append(CGPoint(x: x, y: y))
+                }
             }
             return pts
         case .sine:
