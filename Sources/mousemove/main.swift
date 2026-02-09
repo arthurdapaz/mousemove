@@ -9,7 +9,8 @@ let activity = ProcessInfo.processInfo.beginActivity(
 )
 
 let mouse = MouseMove()
-mouse.circulate()
+// `MouseMove` schedules its own timer and runs animations on a background queue.
+// Do not call `circulate()` here to avoid blocking the main thread.
 
 print("Press CTRL+C or kill the process to exit. pid:", getpid())
 
