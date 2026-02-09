@@ -8,9 +8,9 @@ let activity = ProcessInfo.processInfo.beginActivity(
     reason: "Timer needs to run"
 )
 
-let mouse = MouseMove()
-// `MouseMove` schedules its own timer and runs animations on a background queue.
-// Do not call `circulate()` here to avoid blocking the main thread.
+let arg = CommandLine.arguments.dropFirst().first
+let animType = arg != nil ? MouseMove.AnimationType.from(arg!) : MouseMove.AnimationType.circle
+let mouse = MouseMove(animation: animType)
 
 print("Press CTRL+C or kill the process to exit. pid:", getpid())
 

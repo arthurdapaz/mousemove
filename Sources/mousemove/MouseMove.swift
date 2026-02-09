@@ -15,7 +15,8 @@ final class MouseMove {
     private let stateQueue = DispatchQueue(label: "mousemove.state")
     private var isAnimating: Bool = false
 
-    init() {
+    init(animation: AnimationType = .circle) {
+        self.animationType = animation
         startEventTap()
 
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -24,6 +25,96 @@ final class MouseMove {
             self.animationQueue.async {
                 self.circulate()
             }
+        }
+    }
+
+    enum AnimationType: String {
+        case circle
+        case square
+        case triangle
+        case zigzag
+        case sine
+
+        static func from(_ s: String) -> AnimationType {
+            return AnimationType(rawValue: s.lowercased()) ?? .circle
+        }
+    }
+
+    private var animationType: AnimationType
+
+    private func pointsForCurrentAnimation(initialPoint: CGPoint, radius: Double = 50, steps: Int = 60) -> [CGPoint] {
+        switch animationType {
+        case .circle:
+            let twoPi = Double.pi * 2
+            let angleStep = twoPi / Double(steps)
+            return (0...steps).map { i in
+                let angle = Double(i) * angleStep
+                return CGPoint(x: radius * cos(angle) + initialPoint.x,
+                               y: radius * sin(angle) + initialPoint.y)
+            }
+        case .square:
+            let side = radius * 2
+            let perSide = max(1, steps / 4)
+            var pts: [CGPoint] = []
+            let half = side / 2
+            let topLeft = CGPoint(x: initialPoint.x - CGFloat(half), y: initialPoint.y + CGFloat(half))
+            let topRight = CGPoint(x: initialPoint.x + CGFloat(half), y: initialPoint.y + CGFloat(half))
+            let bottomRight = CGPoint(x: initialPoint.x + CGFloat(half), y: initialPoint.y - CGFloat(half))
+            let bottomLeft = CGPoint(x: initialPoint.x - CGFloat(half), y: initialPoint.y - CGFloat(half))
+            let corners = [topLeft, topRight, bottomRight, bottomLeft, topLeft]
+            for edge in 0..<(corners.count - 1) {
+                let a = corners[edge]
+                let b = corners[edge + 1]
+                for i in 0...perSide {
+                    let t = CGFloat(i) / CGFloat(perSide)
+                    let x = a.x + (b.x - a.x) * t
+                    let y = a.y + (b.y - a.y) * t
+                    pts.append(CGPoint(x: x, y: y))
+                }
+            }
+            return pts
+        case .triangle:
+            let twoPi = Double.pi * 2
+            // vertices of equilateral triangle
+            let angles = [ -Double.pi/2, -Double.pi/2 + (twoPi/3), -Double.pi/2 + (2*twoPi/3) ]
+            let verts = angles.map { angle in
+                CGPoint(x: initialPoint.x + CGFloat(radius * cos(angle)), y: initialPoint.y + CGFloat(radius * sin(angle)))
+            }
+            var pts: [CGPoint] = []
+            let perSide = max(1, steps / 3)
+            let corners = [verts[0], verts[1], verts[2], verts[0]]
+            for edge in 0..<(corners.count - 1) {
+                let a = corners[edge]
+                let b = corners[edge + 1]
+                for i in 0...perSide {
+                    let t = CGFloat(i) / CGFloat(perSide)
+                    pts.append(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+                }
+            }
+            return pts
+        case .zigzag:
+            var pts: [CGPoint] = []
+            let segments = max(2, steps / 6)
+            let width = radius * 4
+            let dx = width / Double(segments)
+            for i in 0...segments {
+                let x = initialPoint.x - CGFloat(width/2) + CGFloat(Double(i) * dx)
+                let yOffset = (i % 2 == 0) ? radius : -radius
+                let y = initialPoint.y + CGFloat(yOffset)
+                pts.append(CGPoint(x: x, y: y))
+            }
+            return pts
+        case .sine:
+            var pts: [CGPoint] = []
+            let length = radius * 6
+            let samples = steps
+            for i in 0...samples {
+                let t = Double(i) / Double(samples)
+                let x = initialPoint.x - CGFloat(length/2) + CGFloat(t * length)
+                let y = initialPoint.y + CGFloat(sin(t * Double.pi * 2) * (radius / 1.5))
+                pts.append(CGPoint(x: x, y: y))
+            }
+            return pts
         }
     }
 
@@ -134,18 +225,12 @@ final class MouseMove {
 
         let radius: Double = 50
         let steps = 60
-        let twoPi = Double.pi * 2
-        let angleStep = twoPi / Double(steps)
 
-        var lastDestination: CGPoint = initialPoint
+        let points = pointsForCurrentAnimation(initialPoint: initialPoint, radius: radius, steps: steps)
+        var lastDestination = initialPoint
 
-        for i in 0...steps {
+        for (i, destination) in points.enumerated() {
             if getHumanInterrupted() { print("Human interrupted animation — aborting") ; return }
-
-            let angle = Double(i) * angleStep
-            let x = radius * cos(angle) + initialPoint.x
-            let y = radius * sin(angle) + initialPoint.y
-            let destination = CGPoint(x: x, y: y)
 
             if i == 0 {
                 easeMove(from: initialPoint, to: destination)
