@@ -11,9 +11,12 @@ final class MouseMove {
     private var humanInterrupted: Bool = false
     private let programmaticFlagQueue = DispatchQueue(label: "mousemove.programmaticFlag")
     private var programmaticPosting: Bool = false
-    private var eventTap: CFMachPort?
     private let stateQueue = DispatchQueue(label: "mousemove.state")
     private var isAnimating: Bool = false
+    
+    // Custom tag for our synthetic events
+    private let syntheticEventTag: Int64 = 0xDEADBEEF
+
 
     init(animation: AnimationType = .circle) {
         self.animationType = animation
@@ -141,30 +144,28 @@ final class MouseMove {
         return humanFlagQueue.sync { humanInterrupted }
     }
 
-    // eventTap is used to temporarily disable our listener while posting events
-
+    // eventTap is used to listen for real human movements
+    
     private func move(to point: CGPoint) {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-        }
-        CGEvent(mouseEventSource: nil, mouseType: CGEventType.mouseMoved, mouseCursorPosition: point, mouseButton: CGMouseButton.left)?.post(tap: CGEventTapLocation.cghidEventTap)
+        guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else { return }
+        event.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
+        event.post(tap: .cghidEventTap)
         usleep(1_000)
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: true)
-        }
     }
 
-    private func click(at point: CGPoint, mouseButton: CGMouseButton = CGMouseButton.left) {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-        }
-        CGEvent(mouseEventSource: nil, mouseType: CGEventType.leftMouseDown, mouseCursorPosition: point, mouseButton: mouseButton)?.post(tap: CGEventTapLocation.cghidEventTap)
+    private func click(at point: CGPoint, mouseButton: CGMouseButton = .left) {
+        guard let downEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: mouseButton),
+              let upEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: mouseButton) else { return }
+
+        downEvent.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
+        downEvent.post(tap: .cghidEventTap)
+        
         usleep(useconds_t(Int.random(in: 400_010..<600_200)))
-        CGEvent(mouseEventSource: nil, mouseType: CGEventType.leftMouseUp, mouseCursorPosition: point, mouseButton: mouseButton)?.post(tap: CGEventTapLocation.cghidEventTap)
+        
+        upEvent.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
+        upEvent.post(tap: .cghidEventTap)
+        
         usleep(1_000)
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: true)
-        }
     }
 
     private func easeMove(from point¹: CGPoint, to point²: CGPoint, easing: Float = 800.0) {
@@ -187,8 +188,9 @@ final class MouseMove {
     }
 
     private func isIdle() -> Bool {
-        let null = CGEventType(rawValue: ~0)!
-        let lastEvent: CFTimeInterval = CGEventSource.secondsSinceLastEventType(CGEventSourceStateID.hidSystemState, eventType: null)
+        // Safe check using UInt32.max for any input source instead of unsafe ~0 cast
+        let anyInputType = CGEventType(rawValue: UInt32.max)!
+        let lastEvent: CFTimeInterval = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInputType)
         print("Idle for", lastEvent)
         return lastEvent > 5
     }
@@ -207,15 +209,17 @@ final class MouseMove {
             guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
 
             let me = Unmanaged<MouseMove>.fromOpaque(refcon).takeUnretainedValue()
-            // If this callback is reached, it's a real (non-disabled) mouse move — treat as human
-            me.setHumanInterrupted(true)
+            
+            // If the event lacks our custom synthetic tag, it's a real human interaction.
+            if event.getIntegerValueField(.eventSourceUserData) != me.syntheticEventTag {
+                me.setHumanInterrupted(true)
+            }
 
             return Unmanaged.passUnretained(event)
         }, userInfo: ref) else {
             print("Failed to create event tap")
             return
         }
-        self.eventTap = createdTap
 
         let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, createdTap, 0)
 
@@ -235,8 +239,8 @@ final class MouseMove {
         setHumanInterrupted(false)
 
         guard NSScreen.main != nil else { fatalError("Most run on a screen session") }
-        // Usa a posição do mouse em coordenadas de tela (origem canto inferior esquerdo)
-        let initialPoint = NSEvent.mouseLocation
+        // Use Quartz/CoreGraphics coordinates directly which is native for CGEvent posting (top-left origin).
+        let initialPoint = CGEvent(source: nil)?.location ?? .zero
 
         let radius: Double = 50
         let steps = 60
