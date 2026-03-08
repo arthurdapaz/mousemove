@@ -1,14 +1,12 @@
 import Foundation
+@preconcurrency import CoreFoundation
 import CoreGraphics
 import class AppKit.NSScreen
 import class AppKit.NSEvent
 import Darwin
 
-final class MouseMove {
-    private let wanderingLoopQueue = DispatchQueue(label: "mousemove.wandering", qos: .userInteractive)
-    private let physicalInterruptFlagQueue = DispatchQueue(label: "mousemove.physicalInterruptFlag")
+actor MouseMove {
     private var hasPhysicalInterruptOccurred: Bool = false
-    private let stateQueue = DispatchQueue(label: "mousemove.state")
     private var isAnimating: Bool = false
     
     // Custom tag for our synthetic events
@@ -17,40 +15,41 @@ final class MouseMove {
     init() {
         startListeningForPhysicalHumanIntervention()
 
-        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            guard self.hasSystemBeenIdle() else { return }
-            self.wanderingLoopQueue.async {
-                self.beginInfiniteNaturalWandering()
+        Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                
+                guard self.hasSystemBeenIdle() else { continue }
+                await self.beginInfiniteNaturalWandering()
             }
         }
     }
 
-    private func setPhysicalInterruptOccurred(_ didOccur: Bool) {
-        physicalInterruptFlagQueue.sync { hasPhysicalInterruptOccurred = didOccur }
+    func setPhysicalInterruptOccurred(_ didOccur: Bool) {
+        hasPhysicalInterruptOccurred = didOccur
     }
 
-    private func checkIfPhysicalInterruptOccurred() -> Bool {
-        return physicalInterruptFlagQueue.sync { hasPhysicalInterruptOccurred }
+    func checkIfPhysicalInterruptOccurred() -> Bool {
+        return hasPhysicalInterruptOccurred
     }
 
     // eventTap is used to listen for real human movements
-    private func postSyntheticMoveEvent(to point: CGPoint) {
+    private func postSyntheticMoveEvent(to point: CGPoint) async {
         guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else { return }
         event.setIntegerValueField(.eventSourceUserData, value: syntheticEventSignatureTag)
         event.post(tap: .cghidEventTap)
-        usleep(1_000)
+        try? await Task.sleep(nanoseconds: 1_000_000) // 1ms naturally yielding sleep
     }
 
     // Check if system has been idle for more than 5 seconds
-    private func hasSystemBeenIdle() -> Bool {
+    nonisolated private func hasSystemBeenIdle() -> Bool {
         // Safe check using UInt32.max for any input source instead of unsafe ~0 cast
         let anyInputType = CGEventType(rawValue: UInt32.max)!
         let lastEvent: CFTimeInterval = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInputType)
         return lastEvent > 5
     }
 
-    private func startListeningForPhysicalHumanIntervention() {
+    nonisolated private func startListeningForPhysicalHumanIntervention() {
         let mask = CGEventMask(UInt64(1) << UInt64(CGEventType.mouseMoved.rawValue))
 
         let ref = Unmanaged.passUnretained(self).toOpaque()
@@ -67,7 +66,9 @@ final class MouseMove {
             
             // If the event lacks our custom synthetic tag, it's a real human interaction.
             if event.getIntegerValueField(.eventSourceUserData) != me.syntheticEventSignatureTag {
-                me.setPhysicalInterruptOccurred(true)
+                Task {
+                    await me.setPhysicalInterruptOccurred(true)
+                }
             }
 
             return Unmanaged.passUnretained(event)
@@ -78,18 +79,19 @@ final class MouseMove {
 
         let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, createdTap, 0)
 
-        DispatchQueue.global(qos: .background).async {
+        // Run the event tap run-loop on a dedicated background thread to prevent blocking
+        Thread.detachNewThread {
             CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
             CGEvent.tapEnable(tap: createdTap, enable: true)
             CFRunLoopRun()
         }
     }
 
-    func beginInfiniteNaturalWandering() {
+    func beginInfiniteNaturalWandering() async {
         // ensure only one animation at a time
-        if stateQueue.sync(execute: { isAnimating }) { return }
-        stateQueue.sync { isAnimating = true }
-        defer { stateQueue.sync { isAnimating = false } }
+        if isAnimating { return }
+        isAnimating = true
+        defer { isAnimating = false }
 
         setPhysicalInterruptOccurred(false)
 
@@ -150,18 +152,18 @@ final class MouseMove {
                 stepPoint.x = max(safeMinX, min(safeMaxX, stepPoint.x))
                 stepPoint.y = max(safeMinY, min(safeMaxY, stepPoint.y))
                 
-                postSyntheticMoveEvent(to: stepPoint)
+                await postSyntheticMoveEvent(to: stepPoint)
                 
                 // Dynamic organic speed (slower at anchor ends, fast swoosh in middle vector)
                 let speedMod = 1.0 - (sin(t * .pi) * 0.8)
                 let baseSleep = Float.random(in: 1_500...4_000)
-                usleep(useconds_t(baseSleep * Float(speedMod)))
+                try? await Task.sleep(nanoseconds: UInt64(baseSleep * Float(speedMod) * 1_000))
             }
             
             if checkIfPhysicalInterruptOccurred() { break }
             
             currentPoint = targetPoint
-            usleep(useconds_t(Int.random(in: 200_000...1_500_000))) // Pause naturally before picking a new place to rest
+            try? await Task.sleep(nanoseconds: UInt64(Int.random(in: 200_000_000...1_500_000_000))) // Pause naturally before picking a new place to rest
         }
         
         print("intervenção humana detectada, controle retomado.")
