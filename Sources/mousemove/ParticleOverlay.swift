@@ -5,7 +5,6 @@ import QuartzCore
 final class ParticleOverlay {
     static let shared = ParticleOverlay()
     private var window: NSWindow!
-    private var emitter: CAEmitterLayer!
     private var contentView: NSView!
     
     private var lastPoint: CGPoint?
@@ -32,50 +31,7 @@ final class ParticleOverlay {
         contentView.layer?.backgroundColor = NSColor.clear.cgColor
         window.contentView = contentView
         
-        setupEmitter()
-        
         window.makeKeyAndOrderFront(nil)
-    }
-    
-    private func setupEmitter() {
-        emitter = CAEmitterLayer()
-        emitter.emitterShape = .point
-        emitter.renderMode = .additive
-        
-        let spark = CAEmitterCell()
-        spark.name = "spark"
-        spark.birthRate = 0
-        spark.lifetime = 0.8
-        spark.velocity = 150.0
-        spark.velocityRange = 80.0
-        spark.yAcceleration = -350.0     // Gravidade puxando pra baixo (eixo Y NSView)
-        spark.xAcceleration = 0.0
-        spark.emissionRange = 30.0 * (.pi / 180.0) // Cone estreito de 30 graus
-        spark.scale = 0.4
-        spark.scaleSpeed = -0.4          // Vai afinando até sumir
-        spark.alphaSpeed = -1.2          // Esmaece
-        spark.color = CGColor(red: 1.0, green: 0.8, blue: 0.5, alpha: 1.0)
-        
-        // Rasteriza uma faísca suave e esfumaçada (radial gradient) para ser elegante e limpa
-        let size = CGSize(width: 8, height: 8)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        if let ctx = NSGraphicsContext.current?.cgContext {
-            let colors = [CGColor(gray: 1.0, alpha: 1.0), CGColor(gray: 1.0, alpha: 0.0)] as CFArray
-            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceGray(), colors: colors, locations: [0.0, 1.0]) {
-                ctx.drawRadialGradient(gradient, startCenter: CGPoint(x: 4, y: 4), startRadius: 0, endCenter: CGPoint(x: 4, y: 4), endRadius: 4, options: [])
-            }
-        }
-        image.unlockFocus()
-        
-        var rect = NSRect(origin: .zero, size: size)
-        if let cgImage = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) {
-            spark.contents = cgImage
-        }
-        
-        emitter.emitterCells = [spark]
-        emitter.emitterPosition = CGPoint(x: -1000, y: -1000)
-        contentView.layer?.addSublayer(emitter)
     }
     
     func moveTo(_ point: CGPoint) {
@@ -89,23 +45,7 @@ final class ParticleOverlay {
         // Alinha os pontos localmente dentro da view da window fullscreen (suporte a dual-monitor offsets)
         let localPoint = CGPoint(x: nsX - screenRect.minX, y: nsY - screenRect.minY)
         
-        emitter.emitterPosition = localPoint
-        
         if let last = lastPoint {
-            // Calcula o campo vetorial (direção real do movimento para trás)
-            let dx = localPoint.x - last.x
-            let dy = localPoint.y - last.y
-            let dist = sqrt(dx * dx + dy * dy)
-            let angle = atan2(dy, dx)
-            
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            // Atira as faíscas dinamicamente para TRÁS (+ π radianos) da direção em que o mouse viaja
-            emitter.setValue(angle + .pi, forKeyPath: "emitterCells.spark.emissionLongitude")
-            // Velocidade das faíscas reage com a velocidade do movimento
-            emitter.setValue(min(400.0, 100.0 + dist * 10.0), forKeyPath: "emitterCells.spark.velocity")
-            CATransaction.commit()
-            
             drawLaserTrail(from: last, to: localPoint)
         }
         lastPoint = localPoint
@@ -117,10 +57,7 @@ final class ParticleOverlay {
     }
     
     func setEmitting(_ emitting: Bool) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        emitter.setValue(emitting ? 500.0 : 0.0, forKeyPath: "emitterCells.spark.birthRate")
-        CATransaction.commit()
+        // Sem-op (vazio). Mantido para não quebrar contrato as chamadas em MouseMove.swift
     }
     
     private func drawLaserTrail(from: CGPoint, to: CGPoint) {
