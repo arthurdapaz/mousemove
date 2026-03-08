@@ -154,8 +154,6 @@ actor MouseMove {
         await ParticleOverlay.shared.resetTrail()
 
         while !checkIfPhysicalInterruptOccurred() {
-            await ParticleOverlay.shared.setEmitting(true)
-            
             // Pick a random target within safe bounds
             let targetX = CGFloat.random(in: safeMinX...safeMaxX)
             let targetY = CGFloat.random(in: safeMinY...safeMaxY)

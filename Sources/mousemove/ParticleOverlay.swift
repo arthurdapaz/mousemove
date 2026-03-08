@@ -53,11 +53,6 @@ final class ParticleOverlay {
     
     func resetTrail() {
         lastPoint = nil
-        setEmitting(false)
-    }
-    
-    func setEmitting(_ emitting: Bool) {
-        // Sem-op (vazio). Mantido para não quebrar contrato as chamadas em MouseMove.swift
     }
     
     private func drawLaserTrail(from: CGPoint, to: CGPoint) {
