@@ -136,7 +136,7 @@ final class MouseMove {
             let steps = Int.random(in: baseSteps...(baseSteps + 100))
             
             for i in 0...steps {
-                if getHumanInterrupted() { print("intervenção humana detectada, controle retomado."); return }
+                if getHumanInterrupted() { break }
                 
                 let t = CGFloat(i) / CGFloat(steps)
                 
@@ -164,8 +164,12 @@ final class MouseMove {
                 usleep(useconds_t(baseSleep * Float(speedMod)))
             }
             
+            if getHumanInterrupted() { break }
+            
             currentPoint = targetPoint
             usleep(useconds_t(Int.random(in: 200_000...1_500_000))) // Pause naturally before picking a new place to rest
         }
+        
+        print("intervenção humana detectada, controle retomado.")
     }
 }
