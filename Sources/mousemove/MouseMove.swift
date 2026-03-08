@@ -18,7 +18,7 @@ final class MouseMove {
     private let syntheticEventTag: Int64 = 0xDEADBEEF
 
 
-    init(animation: AnimationType = .circle) {
+    init(animation: AnimationType = .natural) {
         self.animationType = animation
         startEventTap()
 
@@ -37,9 +37,10 @@ final class MouseMove {
         case triangle
         case zigzag
         case sine
+        case natural
 
         static func from(_ s: String) -> AnimationType {
-            return AnimationType(rawValue: s.lowercased()) ?? .circle
+            return AnimationType(rawValue: s.lowercased()) ?? .natural
         }
     }
 
@@ -133,6 +134,25 @@ final class MouseMove {
                 pts.append(CGPoint(x: x, y: y))
             }
             return pts
+        case .natural:
+            var pts: [CGPoint] = []
+            let timeFactor = Double.random(in: 1.0...2.0)
+            let phaseX1 = Double.random(in: 0...(2 * .pi))
+            let phaseX2 = Double.random(in: 0...(2 * .pi))
+            let phaseY1 = Double.random(in: 0...(2 * .pi))
+            let phaseY2 = Double.random(in: 0...(2 * .pi))
+            
+            for i in 0...steps {
+                let t = Double(i) / Double(steps)
+                let envelope = sin(t * .pi) // smooth start and end
+                
+                let dx = (sin(t * .pi * 2 * timeFactor + phaseX1) * radius + sin(t * .pi * 4 * timeFactor + phaseX2) * (radius * 0.4)) * envelope
+                let dy = (cos(t * .pi * 2 * timeFactor + phaseY1) * radius + cos(t * .pi * 3 * timeFactor + phaseY2) * (radius * 0.4)) * envelope
+                
+                pts.append(CGPoint(x: initialPoint.x + CGFloat(dx),
+                                   y: initialPoint.y + CGFloat(dy)))
+            }
+            return pts
         }
     }
 
@@ -153,20 +173,7 @@ final class MouseMove {
         usleep(1_000)
     }
 
-    private func click(at point: CGPoint, mouseButton: CGMouseButton = .left) {
-        guard let downEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: mouseButton),
-              let upEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: mouseButton) else { return }
-
-        downEvent.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
-        downEvent.post(tap: .cghidEventTap)
-        
-        usleep(useconds_t(Int.random(in: 400_010..<600_200)))
-        
-        upEvent.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
-        upEvent.post(tap: .cghidEventTap)
-        
-        usleep(1_000)
-    }
+    // Click function has been explicitly removed to prohibit synthetic mouse clicks per constraints.
 
     private func easeMove(from point¹: CGPoint, to point²: CGPoint, easing: Float = 800.0) {
         let distance = point¹.distance(to: point²)
@@ -242,8 +249,8 @@ final class MouseMove {
         // Use Quartz/CoreGraphics coordinates directly which is native for CGEvent posting (top-left origin).
         let initialPoint = CGEvent(source: nil)?.location ?? .zero
 
-        let radius: Double = 50
-        let steps = 60
+        let radius: Double = (animationType == .natural) ? Double.random(in: 50...250) : 50
+        let steps = (animationType == .natural) ? Int.random(in: 60...180) : 60
 
         let points = pointsForCurrentAnimation(initialPoint: initialPoint, radius: radius, steps: steps)
         var lastDestination = initialPoint
