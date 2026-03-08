@@ -5,58 +5,52 @@ import class AppKit.NSEvent
 import Darwin
 
 final class MouseMove {
-    private let animationQueue = DispatchQueue(label: "mousemove.animation", qos: .userInteractive)
-    private let humanFlagQueue = DispatchQueue(label: "mousemove.humanFlag")
-    private var humanInterrupted: Bool = false
+    private let wanderingLoopQueue = DispatchQueue(label: "mousemove.wandering", qos: .userInteractive)
+    private let physicalInterruptFlagQueue = DispatchQueue(label: "mousemove.physicalInterruptFlag")
+    private var hasPhysicalInterruptOccurred: Bool = false
     private let stateQueue = DispatchQueue(label: "mousemove.state")
     private var isAnimating: Bool = false
     
     // Custom tag for our synthetic events
-    private let syntheticEventTag: Int64 = 0xDEADBEEF
-
+    private let syntheticEventSignatureTag: Int64 = 0xDEADBEEF
 
     init() {
-        startEventTap()
+        startListeningForPhysicalHumanIntervention()
 
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            guard self.isIdle() else { return }
-            self.animationQueue.async {
-                self.circulate()
+            guard let self else { return }
+            guard self.hasSystemBeenIdle() else { return }
+            self.wanderingLoopQueue.async {
+                self.beginInfiniteNaturalWandering()
             }
         }
     }
 
-
-    private func setHumanInterrupted(_ v: Bool) {
-        humanFlagQueue.sync { humanInterrupted = v }
+    private func setPhysicalInterruptOccurred(_ didOccur: Bool) {
+        physicalInterruptFlagQueue.sync { hasPhysicalInterruptOccurred = didOccur }
     }
 
-    private func getHumanInterrupted() -> Bool {
-        return humanFlagQueue.sync { humanInterrupted }
+    private func checkIfPhysicalInterruptOccurred() -> Bool {
+        return physicalInterruptFlagQueue.sync { hasPhysicalInterruptOccurred }
     }
 
     // eventTap is used to listen for real human movements
-    
-    private func move(to point: CGPoint) {
+    private func postSyntheticMoveEvent(to point: CGPoint) {
         guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else { return }
-        event.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
+        event.setIntegerValueField(.eventSourceUserData, value: syntheticEventSignatureTag)
         event.post(tap: .cghidEventTap)
         usleep(1_000)
     }
 
-    // Click function has been explicitly removed to prohibit synthetic mouse clicks per constraints.
-
-
-
-    private func isIdle() -> Bool {
+    // Check if system has been idle for more than 5 seconds
+    private func hasSystemBeenIdle() -> Bool {
         // Safe check using UInt32.max for any input source instead of unsafe ~0 cast
         let anyInputType = CGEventType(rawValue: UInt32.max)!
         let lastEvent: CFTimeInterval = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInputType)
         return lastEvent > 5
     }
 
-    private func startEventTap() {
+    private func startListeningForPhysicalHumanIntervention() {
         let mask = CGEventMask(UInt64(1) << UInt64(CGEventType.mouseMoved.rawValue))
 
         let ref = Unmanaged.passUnretained(self).toOpaque()
@@ -72,8 +66,8 @@ final class MouseMove {
             let me = Unmanaged<MouseMove>.fromOpaque(refcon).takeUnretainedValue()
             
             // If the event lacks our custom synthetic tag, it's a real human interaction.
-            if event.getIntegerValueField(.eventSourceUserData) != me.syntheticEventTag {
-                me.setHumanInterrupted(true)
+            if event.getIntegerValueField(.eventSourceUserData) != me.syntheticEventSignatureTag {
+                me.setPhysicalInterruptOccurred(true)
             }
 
             return Unmanaged.passUnretained(event)
@@ -91,13 +85,13 @@ final class MouseMove {
         }
     }
 
-    func circulate() {
+    func beginInfiniteNaturalWandering() {
         // ensure only one animation at a time
         if stateQueue.sync(execute: { isAnimating }) { return }
         stateQueue.sync { isAnimating = true }
         defer { stateQueue.sync { isAnimating = false } }
 
-        setHumanInterrupted(false)
+        setPhysicalInterruptOccurred(false)
 
         let displayBounds = CGDisplayBounds(CGMainDisplayID())
         let padding: CGFloat = 80.0
@@ -115,7 +109,7 @@ final class MouseMove {
 
         print("iniciando movimento ad-infinitum...")
 
-        while !getHumanInterrupted() {
+        while !checkIfPhysicalInterruptOccurred() {
             // Pick a random target within safe bounds
             let targetX = CGFloat.random(in: safeMinX...safeMaxX)
             let targetY = CGFloat.random(in: safeMinY...safeMaxY)
@@ -136,7 +130,7 @@ final class MouseMove {
             let steps = Int.random(in: baseSteps...(baseSteps + 100))
             
             for i in 0...steps {
-                if getHumanInterrupted() { break }
+                if checkIfPhysicalInterruptOccurred() { break }
                 
                 let t = CGFloat(i) / CGFloat(steps)
                 
@@ -156,7 +150,7 @@ final class MouseMove {
                 stepPoint.x = max(safeMinX, min(safeMaxX, stepPoint.x))
                 stepPoint.y = max(safeMinY, min(safeMaxY, stepPoint.y))
                 
-                move(to: stepPoint)
+                postSyntheticMoveEvent(to: stepPoint)
                 
                 // Dynamic organic speed (slower at anchor ends, fast swoosh in middle vector)
                 let speedMod = 1.0 - (sin(t * .pi) * 0.8)
@@ -164,7 +158,7 @@ final class MouseMove {
                 usleep(useconds_t(baseSleep * Float(speedMod)))
             }
             
-            if getHumanInterrupted() { break }
+            if checkIfPhysicalInterruptOccurred() { break }
             
             currentPoint = targetPoint
             usleep(useconds_t(Int.random(in: 200_000...1_500_000))) // Pause naturally before picking a new place to rest
