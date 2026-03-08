@@ -150,8 +150,12 @@ actor MouseMove {
         currentPoint.y = max(safeMinY, min(safeMaxY, currentPoint.y))
 
         print("iniciando movimento ad-infinitum...")
+        
+        await ParticleOverlay.shared.resetTrail()
 
         while !checkIfPhysicalInterruptOccurred() {
+            await ParticleOverlay.shared.setEmitting(true)
+            
             // Pick a random target within safe bounds
             let targetX = CGFloat.random(in: safeMinX...safeMaxX)
             let targetY = CGFloat.random(in: safeMinY...safeMaxY)
@@ -193,6 +197,7 @@ actor MouseMove {
                 stepPoint.y = max(safeMinY, min(safeMaxY, stepPoint.y))
                 
                 await postSyntheticMoveEvent(to: stepPoint)
+                await ParticleOverlay.shared.moveTo(stepPoint)
                 
                 // Dynamic organic speed (slower at anchor ends, fast swoosh in middle vector)
                 let speedMod = 1.0 - (sin(t * .pi) * 0.8)
@@ -203,9 +208,11 @@ actor MouseMove {
             if checkIfPhysicalInterruptOccurred() { break }
             
             currentPoint = targetPoint
+            await ParticleOverlay.shared.resetTrail()
             try? await Task.sleep(nanoseconds: UInt64(Int.random(in: 200_000_000...1_500_000_000))) // Pause naturally before picking a new place to rest
         }
         
+        await ParticleOverlay.shared.resetTrail()
         print("intervenção humana detectada, controle retomado.")
     }
 }
