@@ -25,11 +25,11 @@ actor MouseMove {
         }
     }
 
-    func setPhysicalInterruptOccurred(_ didOccur: Bool) {
+    private func setPhysicalInterruptOccurred(_ didOccur: Bool) {
         hasPhysicalInterruptOccurred = didOccur
     }
 
-    func checkIfPhysicalInterruptOccurred() -> Bool {
+    private func checkIfPhysicalInterruptOccurred() -> Bool {
         return hasPhysicalInterruptOccurred
     }
 
@@ -87,7 +87,7 @@ actor MouseMove {
         }
     }
 
-    func beginInfiniteNaturalWandering() async {
+    private func beginInfiniteNaturalWandering() async {
         // ensure only one animation at a time
         if isAnimating { return }
         isAnimating = true

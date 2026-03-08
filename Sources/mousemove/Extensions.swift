@@ -7,14 +7,3 @@ extension CGPoint {
         return sqrt(distanceX * distanceX + distanceY * distanceY)
     }
 }
-
-extension CGFloat {
-    var cubicEaseOut: CGFloat {
-        if self < 0.5 {
-            return 4 * pow(self, 3)
-        } else {
-            let function = (2 * self) - 2
-            return 0.5 * pow(function, 3) + 1
-        }
-    }
-}
