@@ -5,12 +5,9 @@ import class AppKit.NSEvent
 import Darwin
 
 final class MouseMove {
-    private let pid = getpid()
     private let animationQueue = DispatchQueue(label: "mousemove.animation", qos: .userInteractive)
     private let humanFlagQueue = DispatchQueue(label: "mousemove.humanFlag")
     private var humanInterrupted: Bool = false
-    private let programmaticFlagQueue = DispatchQueue(label: "mousemove.programmaticFlag")
-    private var programmaticPosting: Bool = false
     private let stateQueue = DispatchQueue(label: "mousemove.state")
     private var isAnimating: Bool = false
     
@@ -56,7 +53,6 @@ final class MouseMove {
         // Safe check using UInt32.max for any input source instead of unsafe ~0 cast
         let anyInputType = CGEventType(rawValue: UInt32.max)!
         let lastEvent: CFTimeInterval = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInputType)
-        print("Idle for", lastEvent)
         return lastEvent > 5
     }
 
@@ -117,6 +113,8 @@ final class MouseMove {
         currentPoint.x = max(safeMinX, min(safeMaxX, currentPoint.x))
         currentPoint.y = max(safeMinY, min(safeMaxY, currentPoint.y))
 
+        print("iniciando movimento ad-infinitum...")
+
         while !getHumanInterrupted() {
             // Pick a random target within safe bounds
             let targetX = CGFloat.random(in: safeMinX...safeMaxX)
@@ -138,7 +136,7 @@ final class MouseMove {
             let steps = Int.random(in: baseSteps...(baseSteps + 100))
             
             for i in 0...steps {
-                if getHumanInterrupted() { print("Human interrupted animation — aborting"); return }
+                if getHumanInterrupted() { print("intervenção humana detectada, controle retomado."); return }
                 
                 let t = CGFloat(i) / CGFloat(steps)
                 
