@@ -8,9 +8,7 @@ let activity = ProcessInfo.processInfo.beginActivity(
     reason: "Timer needs to run"
 )
 
-let arg = CommandLine.arguments.dropFirst().first
-let animType = arg != nil ? MouseMove.AnimationType.from(arg!) : MouseMove.AnimationType.circle
-let mouse = MouseMove(animation: animType)
+let mouse = MouseMove()
 
 print("Press CTRL+C or kill the process to exit. pid:", getpid())
 
