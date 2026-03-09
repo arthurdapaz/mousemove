@@ -4,8 +4,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var mouseMove: MouseMove?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        ParticleOverlay.shared.install()
-        mouseMove = MouseMove()
+        let visualizer = ParticleOverlay.shared
+        visualizer.install()
+        mouseMove = MouseMove(visualizer: visualizer)
     }
 }
 

@@ -1,6 +1,4 @@
 // swift-tools-version: 6.2
-// The swift-tools-version declares the minimum version of Swift required to build this package.
-
 import PackageDescription
 
 let package = Package(
@@ -8,6 +6,14 @@ let package = Package(
     platforms: [.macOS(.v12)],
     products: [.executable(name: "mousemove", targets: ["mousemove"])],
     dependencies: [],
-    targets: [.executableTarget(name: "mousemove", dependencies: [])]
+    targets: [
+        .executableTarget(
+            name: "mousemove",
+            dependencies: []
+        ),
+        .testTarget(
+            name: "mousemoveTests",
+            dependencies: ["mousemove"]
+        )
+    ]
 )
-
