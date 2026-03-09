@@ -151,7 +151,7 @@ actor MouseMove {
 
         print("iniciando movimento ad-infinitum...")
         
-        await ParticleOverlay.shared.resetTrail()
+        // Nenhuma ação. O Motor (Metal) vai gerenciar seu repouso com rastro até que a supernova final aconteça.
 
         while !checkIfPhysicalInterruptOccurred() {
             // Pick a random target within safe bounds
@@ -206,12 +206,11 @@ actor MouseMove {
             if checkIfPhysicalInterruptOccurred() { break }
             
             currentPoint = targetPoint
-            await ParticleOverlay.shared.resetTrail()
             try? await Task.sleep(nanoseconds: UInt64(Int.random(in: 200_000_000...1_500_000_000))) // Pause naturally before picking a new place to rest
         }
         
-        await ParticleOverlay.shared.resetTrail()
-        print("intervenção humana detectada, controle retomado.")
+        await ParticleOverlay.shared.explodeSupernova()
+        print("intervenção humana detectada, controle retomado. SUPERNOVA!")
     }
 }
 
