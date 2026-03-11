@@ -10,12 +10,16 @@ actor MouseMove {
     private var activeWanderingTask: Task<Void, Never>?
     private var eventTap: CFMachPort?
     private let syntheticTag: Int64 = 0xDEADBEEF
+    
+    private let visualizer: any MovementVisualizer
+    private let pathGenerator = PathGenerator()
 
     // Stream como ponte thread-safe entre callback C e actor
     private let interruptStream: AsyncStream<Void>
     private let interruptContinuation: AsyncStream<Void>.Continuation
 
-    init() {
+    init(visualizer: any MovementVisualizer) {
+        self.visualizer = visualizer
         (interruptStream, interruptContinuation) = AsyncStream<Void>.makeStream()
         
         // Iniciar escuta e loop principal como tasks estruturadas
@@ -136,88 +140,42 @@ actor MouseMove {
         setPhysicalInterruptOccurred(false)
 
         let displayBounds = CGDisplayBounds(CGMainDisplayID())
-        let padding: CGFloat = 80.0
+        let padding = PathGenerator.Config.padding
         
-        // Define safe area bounds
-        let safeMinX = displayBounds.minX + padding
-        let safeMaxX = displayBounds.maxX - padding
-        let safeMinY = displayBounds.minY + padding
-        let safeMaxY = displayBounds.maxY - padding
+        let safeBounds = displayBounds.insetBy(dx: padding, dy: padding)
         
-        var currentPoint = CGEvent(source: nil)?.location ?? CGPoint(x: safeMaxX / 2, y: safeMaxY / 2)
-        // Clamp bounds securely
-        currentPoint.x = max(safeMinX, min(safeMaxX, currentPoint.x))
-        currentPoint.y = max(safeMinY, min(safeMaxY, currentPoint.y))
+        var currentPoint = CGEvent(source: nil)?.location ?? CGPoint(x: displayBounds.midX, y: displayBounds.midY)
+        currentPoint.x = max(safeBounds.minX, min(safeBounds.maxX, currentPoint.x))
+        currentPoint.y = max(safeBounds.minY, min(safeBounds.maxY, currentPoint.y))
 
         print("iniciando movimento ad-infinitum...")
         
-        // Nenhuma ação. O Motor (Metal) vai gerenciar seu repouso com rastro até que a supernova final aconteça.
-
         while !checkIfPhysicalInterruptOccurred() {
-            // Pick a random target within safe bounds
-            let targetX = CGFloat.random(in: safeMinX...safeMaxX)
-            let targetY = CGFloat.random(in: safeMinY...safeMaxY)
-            let targetPoint = CGPoint(x: targetX, y: targetY)
-            
-            // Generate some random bezier control points to add sweeping human curvature
-            let controlPoint1 = CGPoint(
-                x: currentPoint.x + CGFloat.random(in: -400...400),
-                y: currentPoint.y + CGFloat.random(in: -400...400)
+            let targetPoint = CGPoint(
+                x: CGFloat.random(in: safeBounds.minX...safeBounds.maxX),
+                y: CGFloat.random(in: safeBounds.minY...safeBounds.maxY)
             )
-            let controlPoint2 = CGPoint(
-                x: targetPoint.x + CGFloat.random(in: -400...400),
-                y: targetPoint.y + CGFloat.random(in: -400...400)
-            )
-
-            let distance = currentPoint.distance(to: targetPoint)
-            let baseSteps = Int(max(100, distance / 3)) // Variable resolution scaling
-            let steps = Int.random(in: baseSteps...(baseSteps + 100))
             
-            for i in 0...steps {
+            let pathPoints = pathGenerator.generatePoints(from: currentPoint, to: targetPoint, screenBounds: displayBounds)
+            
+            for step in pathPoints {
                 if checkIfPhysicalInterruptOccurred() { break }
                 
-                let t = CGFloat(i) / CGFloat(steps)
+                await postSyntheticMoveEvent(to: step.point)
+                await visualizer.moveTo(step.point)
                 
-                // Cubic Bezier interpolation mathematical model
-                let invT = 1.0 - t
-                let term1 = invT * invT * invT
-                let term2 = 3.0 * invT * invT * t
-                let term3 = 3.0 * invT * t * t
-                let term4 = t * t * t
-                
-                var stepPoint = CGPoint(
-                    x: term1 * currentPoint.x + term2 * controlPoint1.x + term3 * controlPoint2.x + term4 * targetPoint.x,
-                    y: term1 * currentPoint.y + term2 * controlPoint1.y + term3 * controlPoint2.y + term4 * targetPoint.y
-                )
-                
-                // Hard-clamp the calculation within bounds to satisfy the 80px rule
-                stepPoint.x = max(safeMinX, min(safeMaxX, stepPoint.x))
-                stepPoint.y = max(safeMinY, min(safeMaxY, stepPoint.y))
-                
-                await postSyntheticMoveEvent(to: stepPoint)
-                await ParticleOverlay.shared.moveTo(stepPoint)
-                
-                // Dynamic organic speed (slower at anchor ends, fast swoosh in middle vector)
-                let speedMod = 1.0 - (sin(t * .pi) * 0.8)
                 let baseSleep = Float.random(in: 1_500...4_000)
-                try? await Task.sleep(nanoseconds: UInt64(baseSleep * Float(speedMod) * 1_000))
+                try? await Task.sleep(nanoseconds: UInt64(baseSleep * Float(step.speedModifier) * 1_000))
             }
             
             if checkIfPhysicalInterruptOccurred() { break }
             
             currentPoint = targetPoint
-            try? await Task.sleep(nanoseconds: UInt64(Int.random(in: 200_000_000...1_500_000_000))) // Pause naturally before picking a new place to rest
+            try? await Task.sleep(nanoseconds: UInt64(Int.random(in: 200_000_000...1_500_000_000)))
         }
         
-        await ParticleOverlay.shared.explodeSupernova()
+        await visualizer.explodeSupernova()
         print("intervenção humana detectada, controle retomado. SUPERNOVA!")
     }
 }
 
-private extension CGPoint {
-    func distance(to point: CGPoint) -> CGFloat {
-        let distanceX = x - point.x
-        let distanceY = y - point.y
-        return sqrt(distanceX * distanceX + distanceY * distanceY)
-    }
-}

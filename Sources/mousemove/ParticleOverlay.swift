@@ -3,7 +3,13 @@ import MetalKit
 import QuartzCore
 
 @MainActor
-final class ParticleOverlay: NSObject, MTKViewDelegate {
+protocol MovementVisualizer: Sendable {
+    func moveTo(_ point: CGPoint) async
+    func explodeSupernova() async
+}
+
+@MainActor
+final class ParticleOverlay: NSObject, MTKViewDelegate, MovementVisualizer {
     static let shared = ParticleOverlay()
     private var window: NSWindow!
     private var mtkView: MTKView!
