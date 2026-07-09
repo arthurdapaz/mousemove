@@ -2,11 +2,23 @@ import AppKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var mouseMove: MouseMove?
+    private let idleSleepPreventer = IdleSleepPreventer(reason: "mousemove active")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        idleSleepPreventer.start()
+
         let visualizer = ParticleOverlay.shared
         visualizer.install()
-        mouseMove = MouseMove(visualizer: visualizer)
+        let mouseMove = MouseMove(visualizer: visualizer)
+        self.mouseMove = mouseMove
+
+        Task { @concurrent in
+            await mouseMove.start()
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        idleSleepPreventer.stop()
     }
 }
 

@@ -4,9 +4,9 @@ import CoreGraphics
 struct PathGenerator {
     struct Config {
         static let padding: CGFloat = 80.0
-        static let minSteps: Int = 100
-        static let distanceDivisor: CGFloat = 3.0
-        static let maxExtraSteps: Int = 100
+        static let minSteps: Int = 24
+        static let distanceDivisor: CGFloat = 18.0
+        static let maxExtraSteps: Int = 24
         static let controlPointOffset: CGFloat = 400.0
     }
 
@@ -17,6 +17,8 @@ struct PathGenerator {
 
     func generatePoints(from start: CGPoint, to target: CGPoint, screenBounds: CGRect) -> [BezierPoint] {
         let safeBounds = screenBounds.insetBy(dx: Config.padding, dy: Config.padding)
+        let maxX = safeBounds.maxX.nextDown
+        let maxY = safeBounds.maxY.nextDown
         
         // Generate random control points for curvature
         let cp1 = CGPoint(
@@ -50,8 +52,8 @@ struct PathGenerator {
             )
             
             // Clamp within safe bounds
-            stepPoint.x = max(safeBounds.minX, min(safeBounds.maxX, stepPoint.x))
-            stepPoint.y = max(safeBounds.minY, min(safeBounds.maxY, stepPoint.y))
+            stepPoint.x = max(safeBounds.minX, min(maxX, stepPoint.x))
+            stepPoint.y = max(safeBounds.minY, min(maxY, stepPoint.y))
             
             let speedMod = 1.0 - (sin(t * .pi) * 0.8)
             points.append(BezierPoint(point: stepPoint, speedModifier: Double(speedMod)))

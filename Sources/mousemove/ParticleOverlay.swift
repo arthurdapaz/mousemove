@@ -11,8 +11,12 @@ protocol MovementVisualizer: Sendable {
 @MainActor
 final class ParticleOverlay: NSObject, MTKViewDelegate, MovementVisualizer {
     static let shared = ParticleOverlay()
+    private static let animationFrameIntervalNanoseconds: UInt64 = 1_000_000_000 / 60
+    private static let visibleIdleGraceInterval: CFTimeInterval = 2.0
+
     private var window: NSWindow!
     private var mtkView: MTKView!
+    private var renderLoopTask: Task<Void, Never>?
     
     private var device: MTLDevice!
     private var commandQueue: MTLCommandQueue!
@@ -221,10 +225,9 @@ final class ParticleOverlay: NSObject, MTKViewDelegate, MovementVisualizer {
         mtkView.layer?.backgroundColor = NSColor.clear.cgColor
         
         mtkView.delegate = self
-        // High refresh rate syncing natively
-        mtkView.preferredFramesPerSecond = 120
-        mtkView.enableSetNeedsDisplay = false
-        mtkView.isPaused = false
+        mtkView.preferredFramesPerSecond = 60
+        mtkView.enableSetNeedsDisplay = true
+        mtkView.isPaused = true
         
         do {
             let library = try device.makeLibrary(source: shaderSource, options: nil)
@@ -283,12 +286,14 @@ final class ParticleOverlay: NSObject, MTKViewDelegate, MovementVisualizer {
         
         currentPoint = localPoint
         lastTime = now
+        startRenderLoop()
     }
     
     func explodeSupernova() {
         if !isExploding && currentPoint.x > -5000 {
             isExploding = true
             explosionStartTime = CACurrentMediaTime()
+            startRenderLoop()
         }
     }
     
@@ -296,6 +301,7 @@ final class ParticleOverlay: NSObject, MTKViewDelegate, MovementVisualizer {
         if !isExploding {
             currentPoint.x = -10000
             velocity = .zero
+            requestDraw()
         }
     }
     
@@ -304,9 +310,49 @@ final class ParticleOverlay: NSObject, MTKViewDelegate, MovementVisualizer {
     nonisolated func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
     
     nonisolated func draw(in view: MTKView) {
-        DispatchQueue.main.async {
+        MainActor.assumeIsolated {
             self.render(in: view)
         }
+    }
+
+    private func requestDraw() {
+        guard let mtkView else { return }
+        mtkView.draw()
+    }
+
+    private func startRenderLoop() {
+        guard renderLoopTask == nil else { return }
+
+        let frameInterval = Self.animationFrameIntervalNanoseconds
+        renderLoopTask = Task { @concurrent [weak self] in
+            while !Task.isCancelled {
+                let shouldContinue = await MainActor.run { () -> Bool in
+                    guard let self else { return false }
+                    self.requestDraw()
+                    return self.shouldKeepRendering()
+                }
+
+                if !shouldContinue { break }
+
+                do {
+                    try await Task.sleep(nanoseconds: frameInterval)
+                } catch {
+                    break
+                }
+            }
+
+            await MainActor.run { [weak self] in
+                self?.renderLoopTask = nil
+            }
+        }
+    }
+
+    private func shouldKeepRendering() -> Bool {
+        if isExploding { return true }
+        if currentPoint.x < -4000 { return false }
+
+        let idleDuration = CACurrentMediaTime() - lastTime
+        return idleDuration < Self.visibleIdleGraceInterval
     }
     
     private func render(in view: MTKView) {

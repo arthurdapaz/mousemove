@@ -9,7 +9,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "mousemove",
-            dependencies: []
+            dependencies: [],
+            linkerSettings: [.linkedFramework("IOKit")]
         ),
         .testTarget(
             name: "mousemoveTests",

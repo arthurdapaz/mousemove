@@ -7,9 +7,13 @@ import Foundation
 
 actor MouseMove {
     private var hasPhysicalInterruptOccurred = false
+    private var interruptListenerTask: Task<Void, Never>?
+    private var mainLoopTask: Task<Void, Never>?
     private var activeWanderingTask: Task<Void, Never>?
     private var eventTap: CFMachPort?
     private let syntheticTag: Int64 = 0xDEADBEEF
+    private let minimumStepSleepNanoseconds: UInt64 = 12_000_000
+    private let stepSleepRangeNanoseconds: ClosedRange<UInt64> = 16_000_000...34_000_000
 
     private let visualizer: any MovementVisualizer
     private let pathGenerator = PathGenerator()
@@ -21,45 +25,46 @@ actor MouseMove {
     init(visualizer: any MovementVisualizer) {
         self.visualizer = visualizer
         (interruptStream, interruptContinuation) = AsyncStream<Void>.makeStream()
+    }
 
-        // Iniciar escuta e loop principal como tasks estruturadas
-        Task { await self.listenForInterrupts() }
-        Task { await self.mainLoop() }
+    func start() {
+        guard interruptListenerTask == nil, mainLoopTask == nil else { return }
 
-        installEventTap()
+        eventTap = installEventTap()
+
+        interruptListenerTask = Task { [weak self, interruptStream] in
+            for await _ in interruptStream {
+                guard !Task.isCancelled else { return }
+                await self?.setPhysicalInterruptOccurred(true)
+            }
+        }
+
+        mainLoopTask = Task { @concurrent [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                } catch {
+                    return
+                }
+
+                guard let self, self.hasSystemBeenIdle() else { continue }
+                await self.beginWandering()
+            }
+        }
     }
 
     deinit {
+        interruptListenerTask?.cancel()
+        mainLoopTask?.cancel()
         activeWanderingTask?.cancel()
         interruptContinuation.finish()
     }
 
-    private func listenForInterrupts() async {
-        for await _ in interruptStream {
-            hasPhysicalInterruptOccurred = true
-        }
-    }
-
-    private func mainLoop() async {
-        while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-            guard hasSystemBeenIdle() else { continue }
-            beginWandering()
-        }
-    }
-
     private func beginWandering() {
         guard activeWanderingTask == nil else { return }
-        activeWanderingTask = Task {
-            defer {
-                Task { [weak self] in await self?.clearWanderingTask() }
-            }
-            await self.beginInfiniteNaturalWandering()
+        activeWanderingTask = Task { [weak self] in
+            await self?.beginInfiniteNaturalWandering()
         }
-    }
-
-    private func clearWanderingTask() {
-        activeWanderingTask = nil
     }
 
     private func setPhysicalInterruptOccurred(_ didOccur: Bool) {
@@ -71,11 +76,10 @@ actor MouseMove {
     }
 
     // eventTap is used to listen for real human movements
-    private func postSyntheticMoveEvent(to point: CGPoint) async {
+    private func postSyntheticMoveEvent(to point: CGPoint) {
         guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else { return }
         event.setIntegerValueField(.eventSourceUserData, value: syntheticTag)
         event.post(tap: .cghidEventTap)
-        try? await Task.sleep(nanoseconds: 1_000_000) // 1ms naturally yielding sleep
     }
 
     // Check if system has been idle for more than 5 seconds
@@ -85,10 +89,11 @@ actor MouseMove {
         return lastEvent > 5
     }
 
-    nonisolated private func installEventTap() {
+    nonisolated private func installEventTap() -> CFMachPort? {
         let mask = CGEventMask(1 << CGEventType.mouseMoved.rawValue)
         // passRetained para garantir lifetime correto
-        let ref = Unmanaged.passRetained(self).toOpaque()
+        let retainedSelf = Unmanaged.passRetained(self)
+        let ref = retainedSelf.toOpaque()
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -108,10 +113,9 @@ actor MouseMove {
             userInfo: ref
         ) else {
             print("Failed to create event tap")
-            return
+            retainedSelf.release()
+            return nil
         }
-
-        Task { await self.setEventTap(tap) }
 
         // Pass the pointer safely to the Sendable closure by wrapping it via an integer cast
         let refInt = Int(bitPattern: ref)
@@ -129,13 +133,12 @@ actor MouseMove {
                 Unmanaged<MouseMove>.fromOpaque(safeRef).release()
             }
         }
-    }
 
-    private func setEventTap(_ tap: CFMachPort) {
-        self.eventTap = tap
+        return tap
     }
 
     private func beginInfiniteNaturalWandering() async {
+        defer { activeWanderingTask = nil }
 
         setPhysicalInterruptOccurred(false)
 
@@ -150,7 +153,7 @@ actor MouseMove {
 
         print("Déficit de atenção. Vagando...")
 
-        while !checkIfPhysicalInterruptOccurred() {
+        while !Task.isCancelled && !checkIfPhysicalInterruptOccurred() {
             let targetPoint = CGPoint(
                 x: CGFloat.random(in: safeBounds.minX...safeBounds.maxX),
                 y: CGFloat.random(in: safeBounds.minY...safeBounds.maxY)
@@ -159,23 +162,33 @@ actor MouseMove {
             let pathPoints = pathGenerator.generatePoints(from: currentPoint, to: targetPoint, screenBounds: displayBounds)
 
             for step in pathPoints {
-                if checkIfPhysicalInterruptOccurred() { break }
+                if Task.isCancelled || checkIfPhysicalInterruptOccurred() { break }
 
-                await postSyntheticMoveEvent(to: step.point)
+                postSyntheticMoveEvent(to: step.point)
                 await visualizer.moveTo(step.point)
 
-                let baseSleep = Float.random(in: 1_500...4_000)
-                try? await Task.sleep(nanoseconds: UInt64(baseSleep * Float(step.speedModifier) * 1_000))
+                let baseSleep = UInt64.random(in: stepSleepRangeNanoseconds)
+                let sleep = max(minimumStepSleepNanoseconds, UInt64(Double(baseSleep) * step.speedModifier))
+                do {
+                    try await Task.sleep(nanoseconds: sleep)
+                } catch {
+                    break
+                }
             }
 
-            if checkIfPhysicalInterruptOccurred() { break }
+            if Task.isCancelled || checkIfPhysicalInterruptOccurred() { break }
 
             currentPoint = targetPoint
-            try? await Task.sleep(nanoseconds: UInt64(Int.random(in: 200_000_000...1_500_000_000)))
+            do {
+                try await Task.sleep(nanoseconds: UInt64(Int.random(in: 200_000_000...1_500_000_000)))
+            } catch {
+                break
+            }
         }
 
-        await visualizer.explodeSupernova()
-        print("Consciência retomada.")
+        if !Task.isCancelled {
+            await visualizer.explodeSupernova()
+            print("Consciência retomada.")
+        }
     }
 }
-
